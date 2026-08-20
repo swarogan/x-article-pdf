@@ -1,0 +1,30 @@
+{
+    "name": "local/x-article-pdf",
+    "description": "Lokalny konwerter postów i artykułów X do PDF",
+    "type": "project",
+    "require": {
+        "php": ">=8.3",
+        "mpdf/mpdf": "^8.2",
+        "league/commonmark": "^2.10"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "XArticlePdf\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "XArticlePdf\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "config": {
+        "allow-plugins": {},
+        "platform-check": false
+    }
+}
