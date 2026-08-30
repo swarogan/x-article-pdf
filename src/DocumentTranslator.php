@@ -12,8 +12,12 @@ final class DocumentTranslator
     {
     }
 
-    public function translate(ArticleDocument $doc, string $targetLanguage, ?callable $onProgress = null): ArticleDocument
-    {
+    public function translate(
+        ArticleDocument $doc,
+        string $targetLanguage,
+        ?callable $onProgress = null,
+        ?string $model = null,
+    ): ArticleDocument {
         $jobs = [];
         if ($this->shouldTranslate($doc->title)) {
             $jobs[] = ['kind' => 'title'];
@@ -68,6 +72,8 @@ final class DocumentTranslator
             coverUrl: $doc->coverUrl,
             blocks: $blocks,
             isLongArticle: $doc->isLongArticle,
+            translatedTo: $targetLanguage,
+            translationModel: $model,
         );
     }
 

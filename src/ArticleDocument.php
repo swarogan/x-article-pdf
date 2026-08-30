@@ -18,6 +18,8 @@ final readonly class ArticleDocument
         public ?string $coverUrl,
         public array $blocks,
         public bool $isLongArticle,
+        public ?string $translatedTo = null,
+        public ?string $translationModel = null,
     ) {
     }
 
@@ -40,6 +42,8 @@ final readonly class ArticleDocument
             'coverUrl' => $this->coverUrl,
             'blocks' => $this->blocks,
             'isLongArticle' => $this->isLongArticle,
+            'translatedTo' => $this->translatedTo,
+            'translationModel' => $this->translationModel,
         ];
     }
 
@@ -79,6 +83,8 @@ final readonly class ArticleDocument
             coverUrl: is_string($data['coverUrl'] ?? null) ? $data['coverUrl'] : null,
             blocks: $blocks,
             isLongArticle: (bool) ($data['isLongArticle'] ?? false),
+            translatedTo: is_string($data['translatedTo'] ?? null) ? $data['translatedTo'] : null,
+            translationModel: is_string($data['translationModel'] ?? null) ? $data['translationModel'] : null,
         );
     }
 }

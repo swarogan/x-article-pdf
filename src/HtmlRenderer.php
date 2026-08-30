@@ -22,6 +22,14 @@ final class HtmlRenderer
         $date = $this->e($doc->publishedAt ?? '');
         $url = $this->e($doc->url);
         $kind = $doc->isLongArticle ? 'Artykuł X' : 'Wątek X';
+        $translation = '';
+        if ($doc->translatedTo !== null && $doc->translatedTo !== '') {
+            $line = 'Tłumaczenie: ' . LanguageCatalog::label($doc->translatedTo);
+            if ($doc->translationModel !== null && $doc->translationModel !== '') {
+                $line .= ' · model ' . $doc->translationModel;
+            }
+            $translation = '<p class="meta">' . $this->e($line) . '</p>';
+        }
 
         return <<<HTML
 <!DOCTYPE html>
@@ -72,6 +80,7 @@ final class HtmlRenderer
   {$cover}
   {$body}
   <p class="meta">Źródło: <a href="{$url}">{$url}</a></p>
+  {$translation}
 </body>
 </html>
 HTML;

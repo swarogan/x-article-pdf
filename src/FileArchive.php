@@ -26,6 +26,8 @@ final class FileArchive
         string $sourceUrl,
         string $format,
         ?ArticleDocument $source = null,
+        ?string $translatedTo = null,
+        ?string $translationModel = null,
     ): array {
         $id = bin2hex(random_bytes(16));
         $item = [
@@ -37,6 +39,8 @@ final class FileArchive
             'format' => $format,
             'created' => time(),
             'bytes' => strlen($body),
+            'translatedTo' => $translatedTo,
+            'translationModel' => $translationModel,
         ];
         file_put_contents($this->path($id), $body);
         if ($source !== null) {

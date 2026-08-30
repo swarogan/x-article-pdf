@@ -69,4 +69,26 @@ final class FileArchiveTest extends TestCase
         $this->assertNull($archive->source($item['id']));
         $this->assertFileDoesNotExist($dir . '/' . $item['id'] . '.json');
     }
+
+    public function testStoresTranslationMetadataWithArchivedItem(): void
+    {
+        $archive = new FileArchive(sys_get_temp_dir() . '/xpdf-arch-' . bin2hex(random_bytes(4)));
+        $item = $archive->save(
+            'pdf-bytes',
+            'a.pdf',
+            'application/pdf',
+            'Tytuł',
+            'https://x.com/a/status/1',
+            'pdf',
+            null,
+            'Polish',
+            'gemma4:e2b',
+        );
+        $this->assertSame('Polish', $item['translatedTo']);
+        $this->assertSame('gemma4:e2b', $item['translationModel']);
+        $this->assertSame('https://x.com/a/status/1', $item['source']);
+        $listed = $archive->list()[0];
+        $this->assertSame('gemma4:e2b', $listed['translationModel']);
+        $this->assertSame('Polish', $listed['translatedTo']);
+    }
 }

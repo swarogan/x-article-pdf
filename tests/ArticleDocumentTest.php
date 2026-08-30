@@ -30,4 +30,38 @@ final class ArticleDocumentTest extends TestCase
         $this->assertTrue($copy->isLongArticle);
         $this->assertNull(ArticleDocument::fromArray(['id' => '1']));
     }
+
+    public function testTranslationMetadataSurvivesArrayRoundTrip(): void
+    {
+        $doc = new ArticleDocument(
+            id: '1',
+            url: 'https://x.com/anna/status/1',
+            title: 'Tytuł',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [['type' => 'paragraph', 'html' => 'Treść']],
+            isLongArticle: false,
+            translatedTo: 'Polish',
+            translationModel: 'gemma4:e2b',
+        );
+        $back = ArticleDocument::fromArray($doc->toArray());
+        $this->assertNotNull($back);
+        $this->assertSame('Polish', $back->translatedTo);
+        $this->assertSame('gemma4:e2b', $back->translationModel);
+    }
+
+    public function testMissingTranslationMetadataDecodesAsNull(): void
+    {
+        $back = ArticleDocument::fromArray([
+            'id' => '1',
+            'url' => 'https://x.com/anna/status/1',
+            'title' => 'Tytuł',
+            'author' => ['name' => 'Anna', 'handle' => 'anna'],
+            'blocks' => [],
+        ]);
+        $this->assertNotNull($back);
+        $this->assertNull($back->translatedTo);
+        $this->assertNull($back->translationModel);
+    }
 }

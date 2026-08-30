@@ -80,4 +80,9 @@ final class LanguageCatalog
 
         return (bool) preg_match('/^[\p{L}0-9][\p{L}0-9 .()\-\/]*$/u', $name);
     }
+
+    public static function label(string $value): string
+    {
+        return self::options()[$value] ?? $value;
+    }
 }

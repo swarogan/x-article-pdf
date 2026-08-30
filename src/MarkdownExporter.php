@@ -57,6 +57,14 @@ final class MarkdownExporter
 
         $lines[] = '';
         $lines[] = 'Źródło: ' . $doc->url;
+        if ($doc->translatedTo !== null && $doc->translatedTo !== '') {
+            $line = 'Tłumaczenie: ' . LanguageCatalog::label($doc->translatedTo);
+            if ($doc->translationModel !== null && $doc->translationModel !== '') {
+                $line .= ' · model ' . $doc->translationModel;
+            }
+            $lines[] = '';
+            $lines[] = $line;
+        }
         $lines[] = '';
 
         return implode("\n", $lines);

@@ -185,7 +185,17 @@ HTML;
             $filename = $out['filename'];
             $mime = $out['mime'];
             if ($progress) {
-                $item = $this->archive()->save($body, $filename, $mime, $doc->title, $doc->url, $format, $sourceDoc);
+                $item = $this->archive()->save(
+                    $body,
+                    $filename,
+                    $mime,
+                    $doc->title,
+                    $doc->url,
+                    $format,
+                    $sourceDoc,
+                    $doc->translatedTo !== null ? LanguageCatalog::label($doc->translatedTo) : null,
+                    $doc->translationModel,
+                );
                 $this->emit([
                     'stage' => 'done',
                     'percent' => 100,
@@ -262,6 +272,8 @@ HTML;
                 $doc->url,
                 $format,
                 $sourceDoc,
+                $doc->translatedTo !== null ? LanguageCatalog::label($doc->translatedTo) : null,
+                $doc->translationModel,
             );
             if ($progress) {
                 $this->emit([
@@ -332,6 +344,7 @@ HTML;
                     'label' => 'Tłumaczenie ' . $current . '/' . $total,
                 ]);
             },
+            $translator->modelName(),
         );
     }
 

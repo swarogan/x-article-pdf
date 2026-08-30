@@ -66,6 +66,41 @@ final class DocumentTranslatorTest extends TestCase
         $this->assertStringNotContainsString('</html>', $out->blocks[0]['html']);
         $this->assertStringNotContainsString('<script>', $out->blocks[0]['html']);
     }
+
+    public function testRecordsTargetLanguageAndModelOnTranslatedDocument(): void
+    {
+        $doc = new ArticleDocument(
+            id: '1',
+            url: 'https://x.com/anna/status/1',
+            title: 'Hello world',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [['type' => 'paragraph', 'html' => 'Keep going']],
+            isLongArticle: true,
+        );
+        $out = (new DocumentTranslator(new PrefixTranslator()))->translate($doc, 'Polish', null, 'gemma4:e2b');
+        $this->assertSame('Polish', $out->translatedTo);
+        $this->assertSame('gemma4:e2b', $out->translationModel);
+        $this->assertNull($doc->translatedTo);
+    }
+
+    public function testLeavesMetadataEmptyWhenNothingWasTranslated(): void
+    {
+        $doc = new ArticleDocument(
+            id: '1',
+            url: 'https://x.com/anna/status/1',
+            title: '...',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [['type' => 'code', 'code' => 'echo 1;']],
+            isLongArticle: false,
+        );
+        $out = (new DocumentTranslator(new PrefixTranslator()))->translate($doc, 'Polish', null, 'gemma4:e2b');
+        $this->assertNull($out->translatedTo);
+        $this->assertNull($out->translationModel);
+    }
 }
 
 final class PrefixTranslator implements Translator

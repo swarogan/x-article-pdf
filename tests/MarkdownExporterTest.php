@@ -62,4 +62,37 @@ final class MarkdownExporterTest extends TestCase
             isLongArticle: true,
         )));
     }
+
+    public function testFooterShowsSourceAndTranslationModel(): void
+    {
+        $md = (new MarkdownExporter())->build(new ArticleDocument(
+            id: '90',
+            url: 'https://x.com/anna/status/90',
+            title: 'Tytuł',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [['type' => 'paragraph', 'html' => 'Treść']],
+            isLongArticle: false,
+            translatedTo: 'Polish',
+            translationModel: 'gemma4:e2b',
+        ));
+        $this->assertStringContainsString('Źródło: https://x.com/anna/status/90', $md);
+        $this->assertStringContainsString('Tłumaczenie: Polski · model gemma4:e2b', $md);
+    }
+
+    public function testFooterOmitsTranslationLineForUntranslatedDocument(): void
+    {
+        $md = (new MarkdownExporter())->build(new ArticleDocument(
+            id: '90',
+            url: 'https://x.com/anna/status/90',
+            title: 'Tytuł',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [['type' => 'paragraph', 'html' => 'Treść']],
+            isLongArticle: false,
+        ));
+        $this->assertStringNotContainsString('Tłumaczenie:', $md);
+    }
 }

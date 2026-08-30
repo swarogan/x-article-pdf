@@ -171,6 +171,23 @@ button.run:disabled { opacity: .45; cursor: wait; }
 }
 .hist-title { color: var(--text); }
 .hist-meta { color: var(--dim); font-size: 10px; margin-top: 3px; }
+.hist-extra {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 0 10px 8px 58px;
+  font-size: 10px;
+}
+.history a.hist-src {
+  display: inline;
+  padding: 0;
+  color: var(--dim);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.history a.hist-src:hover { color: var(--hot); background: transparent; border-color: transparent; }
+.hist-model { color: var(--dim); }
 .empty-hist { color: var(--dim); padding: 12px 8px; }
 
 .stage {

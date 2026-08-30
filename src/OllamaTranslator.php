@@ -26,6 +26,11 @@ final class OllamaTranslator implements Translator
         return new self(rtrim($host, '/'), $chosen);
     }
 
+    public function modelName(): string
+    {
+        return $this->model;
+    }
+
     /**
      * @param (callable(int, int): void)|null $onTry
      */

@@ -155,4 +155,42 @@ final class HtmlRendererTest extends TestCase
         $this->assertStringContainsString('<br', $html2);
         $this->assertStringContainsString('<hr class="div"', $html2);
     }
+
+    public function testFooterShowsSourceLinkAndTranslationModel(): void
+    {
+        $html = (new HtmlRenderer(new MediaStore(sys_get_temp_dir() . '/xpdf-meta-' . bin2hex(random_bytes(4)))))->render(
+            new ArticleDocument(
+                id: '1',
+                url: 'https://x.com/anna/status/1',
+                title: 'Tytuł',
+                author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+                publishedAt: null,
+                coverUrl: null,
+                blocks: [['type' => 'paragraph', 'html' => 'Treść']],
+                isLongArticle: false,
+                translatedTo: 'Polish',
+                translationModel: 'gemma4:e2b',
+            ),
+        );
+        $this->assertStringContainsString('https://x.com/anna/status/1', $html);
+        $this->assertStringContainsString('Polski', $html);
+        $this->assertStringContainsString('gemma4:e2b', $html);
+    }
+
+    public function testFooterOmitsTranslationLineForUntranslatedDocument(): void
+    {
+        $html = (new HtmlRenderer(new MediaStore(sys_get_temp_dir() . '/xpdf-meta-' . bin2hex(random_bytes(4)))))->render(
+            new ArticleDocument(
+                id: '1',
+                url: 'https://x.com/anna/status/1',
+                title: 'Tytuł',
+                author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+                publishedAt: null,
+                coverUrl: null,
+                blocks: [['type' => 'paragraph', 'html' => 'Treść']],
+                isLongArticle: false,
+            ),
+        );
+        $this->assertStringNotContainsString('Tłumaczenie:', $html);
+    }
 }

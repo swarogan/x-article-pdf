@@ -89,6 +89,10 @@
     return d.toISOString().slice(0, 16).replace('T', ' ');
   }
 
+  function shortUrl(url) {
+    return String(url).replace(/^https?:\/\//, '').replace(/^www\./, '');
+  }
+
   function renderHistory(items) {
     histList.innerHTML = '';
     if (!items.length) {
@@ -126,6 +130,27 @@
       });
       li.appendChild(a);
       li.appendChild(del);
+      const extra = document.createElement('div');
+      extra.className = 'hist-extra';
+      if (item.source) {
+        const src = document.createElement('a');
+        src.className = 'hist-src';
+        src.href = item.source;
+        src.target = '_blank';
+        src.rel = 'noopener noreferrer';
+        src.title = item.source;
+        src.textContent = shortUrl(item.source);
+        src.addEventListener('click', function (ev) { ev.stopPropagation(); });
+        extra.appendChild(src);
+      }
+      const translation = [item.translatedTo, item.translationModel].filter(Boolean).join(' · ');
+      if (translation) {
+        const t = document.createElement('span');
+        t.className = 'hist-model';
+        t.textContent = translation;
+        extra.appendChild(t);
+      }
+      if (extra.childNodes.length) li.appendChild(extra);
       histList.appendChild(li);
     });
   }
