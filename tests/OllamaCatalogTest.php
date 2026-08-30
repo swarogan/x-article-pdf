@@ -47,4 +47,32 @@ final class OllamaCatalogTest extends TestCase
         $this->assertFalse(OllamaCatalog::isValidName(''));
         $this->assertFalse(OllamaCatalog::isValidName("bad\nname"));
     }
+
+    public function testParsesOpenAiModelListFromLlamaCppServer(): void
+    {
+        $names = OllamaCatalog::namesFromOpenAi([
+            'object' => 'list',
+            'data' => [
+                ['id' => 'gemma-3-4b-it-Q4_K_M.gguf', 'object' => 'model'],
+                ['id' => 'nomic-embed-text-v1.5', 'object' => 'model'],
+                ['id' => 'qwen3.6-7b', 'object' => 'model'],
+            ],
+        ]);
+        $this->assertSame(['gemma-3-4b-it-Q4_K_M.gguf', 'qwen3.6-7b'], $names);
+    }
+
+    public function testEmptyOpenAiPayloadGivesNoModels(): void
+    {
+        $this->assertSame([], OllamaCatalog::namesFromOpenAi(['data' => 'nope']));
+    }
+
+    public function testReadsOpenAiChatCompletionPayload(): void
+    {
+        $this->assertSame(
+            'Witaj',
+            \XArticlePdf\OllamaTranslator::contentFromPayload([
+                'choices' => [['message' => ['content' => "<think>hmm</think>\nWitaj"]]],
+            ]),
+        );
+    }
 }

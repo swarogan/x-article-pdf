@@ -9,7 +9,13 @@ final class OllamaCatalog
     public function __construct(
         private readonly string $baseUrl = 'http://127.0.0.1:11434',
         private readonly int $timeoutSeconds = 4,
+        private readonly string $backend = LlmEndpoint::BACKEND_OLLAMA,
     ) {
+    }
+
+    public static function forEndpoint(LlmEndpoint $endpoint): self
+    {
+        return new self($endpoint->baseUrl, 4, $endpoint->backend);
     }
 
     public static function fromEnvironment(): self
@@ -24,6 +30,7 @@ final class OllamaCatalog
      */
     public function models(): array
     {
+        $path = $this->backend === LlmEndpoint::BACKEND_OPENAI ? '/v1/models' : '/api/tags';
         $context = stream_context_create([
             'http' => [
                 'method' => 'GET',
@@ -32,16 +39,18 @@ final class OllamaCatalog
                 'ignore_errors' => true,
             ],
         ]);
-        $body = @file_get_contents($this->baseUrl . '/api/tags', false, $context);
+        $body = @file_get_contents($this->baseUrl . $path, false, $context);
         if ($body === false) {
-            throw new FetchException('Nie można pobrać listy modeli z Ollama.');
+            throw new FetchException('Nie można pobrać listy modeli z ' . $this->baseUrl . '.');
         }
         $decoded = json_decode($body, true);
         if (!is_array($decoded)) {
-            throw new FetchException('Ollama zwróciła niepoprawną listę modeli.');
+            throw new FetchException('Serwer modeli zwrócił niepoprawną listę.');
         }
 
-        return self::namesFromTags($decoded);
+        return $this->backend === LlmEndpoint::BACKEND_OPENAI
+            ? self::namesFromOpenAi($decoded)
+            : self::namesFromTags($decoded);
     }
 
     /**
@@ -61,6 +70,31 @@ final class OllamaCatalog
             }
             $name = $model['name'] ?? $model['model'] ?? null;
             if (is_string($name) && $name !== '' && self::isChatModel($name, $model)) {
+                $names[] = $name;
+            }
+        }
+        $names = array_values(array_unique($names));
+        sort($names, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $names;
+    }
+
+    /**
+     * Lista modeli serwera zgodnego z OpenAI (llama.cpp, LM Studio, vLLM).
+     *
+     * @param array<string, mixed> $payload
+     * @return list<string>
+     */
+    public static function namesFromOpenAi(array $payload): array
+    {
+        $data = $payload['data'] ?? [];
+        if (!is_array($data)) {
+            return [];
+        }
+        $names = [];
+        foreach ($data as $model) {
+            $name = is_array($model) ? ($model['id'] ?? null) : null;
+            if (is_string($name) && $name !== '' && self::isChatModel($name)) {
                 $names[] = $name;
             }
         }

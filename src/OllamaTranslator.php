@@ -13,7 +13,17 @@ final class OllamaTranslator implements Translator
         private readonly string $model = 'gemma4:e2b',
         private readonly int $timeoutSeconds = 180,
         private string $targetLanguage = 'Polish',
+        private readonly string $backend = LlmEndpoint::BACKEND_OLLAMA,
     ) {
+    }
+
+    public static function forEndpoint(LlmEndpoint $endpoint, ?string $model = null): self
+    {
+        $chosen = is_string($model) && $model !== ''
+            ? $model
+            : (getenv('OLLAMA_TRANSLATE_MODEL') ?: 'gemma4:e2b');
+
+        return new self($endpoint->baseUrl, $chosen, 180, 'Polish', $endpoint->backend);
     }
 
     public static function fromEnvironment(?string $model = null): self
@@ -157,18 +167,28 @@ final class OllamaTranslator implements Translator
 
     private function generateOnce(string $prompt, int $numPredict): string
     {
-        $body = json_encode([
-            'model' => $this->model,
-            'prompt' => $prompt,
-            'stream' => false,
-            'think' => false,
-            'keep_alive' => '15m',
-            'options' => [
-                'num_predict' => $numPredict,
+        $openAi = $this->backend === LlmEndpoint::BACKEND_OPENAI;
+        $payload = $openAi
+            ? [
+                'model' => $this->model,
+                'messages' => [['role' => 'user', 'content' => $prompt]],
+                'stream' => false,
+                'max_tokens' => $numPredict,
                 'temperature' => 0.1,
+            ]
+            : [
+                'model' => $this->model,
+                'prompt' => $prompt,
+                'stream' => false,
                 'think' => false,
-            ],
-        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+                'keep_alive' => '15m',
+                'options' => [
+                    'num_predict' => $numPredict,
+                    'temperature' => 0.1,
+                    'think' => false,
+                ],
+            ];
+        $body = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($body === false) {
             throw new FetchException('Nie udało się przygotować żądania tłumaczenia.');
         }
@@ -181,16 +201,21 @@ final class OllamaTranslator implements Translator
                 'ignore_errors' => true,
             ],
         ]);
-        $response = @file_get_contents($this->baseUrl . '/api/generate', false, $context);
+        $path = $openAi ? '/v1/chat/completions' : '/api/generate';
+        $response = @file_get_contents($this->baseUrl . $path, false, $context);
         if ($response === false) {
-            throw new FetchException('Ollama ładuje model albo nie odpowiada. Ponawiam…');
+            throw new FetchException('Serwer modeli ładuje model albo nie odpowiada. Ponawiam…');
         }
         $decoded = json_decode($response, true);
         if (!is_array($decoded)) {
-            throw new FetchException('Ollama zwróciła niepoprawną odpowiedź.');
+            throw new FetchException('Serwer modeli zwrócił niepoprawną odpowiedź.');
         }
-        if (isset($decoded['error']) && is_string($decoded['error']) && $decoded['error'] !== '') {
-            throw new FetchException('Ollama: ' . $decoded['error']);
+        $error = $decoded['error'] ?? null;
+        if (is_array($error)) {
+            $error = $error['message'] ?? null;
+        }
+        if (is_string($error) && $error !== '') {
+            throw new FetchException('Serwer modeli: ' . $error);
         }
         $content = self::contentFromPayload($decoded);
         if ($content === '') {
@@ -236,6 +261,8 @@ final class OllamaTranslator implements Translator
         $candidates = [
             $decoded['response'] ?? null,
             $decoded['message']['content'] ?? null,
+            $decoded['choices'][0]['message']['content'] ?? null,
+            $decoded['choices'][0]['text'] ?? null,
         ];
         foreach ($candidates as $candidate) {
             if (!is_string($candidate)) {

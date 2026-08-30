@@ -49,38 +49,70 @@
   }
   langSelect.addEventListener('change', syncLang);
 
-  fetch('/?models=1').then(function (r) { return r.json(); }).then(function (data) {
-    const models = data.models || [];
-    const preferred = modelSelect.dataset.default || '';
-    modelSelect.innerHTML = '';
-    if (!models.length) {
-      const o = document.createElement('option');
-      o.value = '';
-      o.textContent = data.message || 'Brak modeli w Ollama';
-      modelSelect.appendChild(o);
-      return;
-    }
-    let picked = false;
-    models.forEach(function (name) {
-      const o = document.createElement('option');
-      o.value = name;
-      o.textContent = name;
-      if (name === preferred) { o.selected = true; picked = true; }
-      modelSelect.appendChild(o);
-    });
-    if (!picked) {
-      const hint = models.find(function (n) { return n === 'gemma4:e2b'; })
-        || models.find(function (n) { return /gemma4:e2b|hy-mt|bielik/i.test(n); });
-      modelSelect.value = hint || models[0];
-    }
-    syncLang();
-  }).catch(function () {
-    modelSelect.innerHTML = '';
-    const o = document.createElement('option');
-    o.value = '';
-    o.textContent = 'Nie można wczytać modeli z Ollama';
-    modelSelect.appendChild(o);
+  const hostInput = document.getElementById('host');
+  const hostProbe = document.getElementById('host-probe');
+  const llmStatus = document.getElementById('llm-status');
+  const HOST_KEY = 'xcapture.llmHost';
+  try {
+    hostInput.value = localStorage.getItem(HOST_KEY) || '';
+  } catch (e) { /* prywatne okno */ }
+
+  function loadModels() {
+    const host = hostInput.value.trim();
+    llmStatus.textContent = 'szukam serwera modeli…';
+    modelSelect.innerHTML = '<option value="">ładowanie modeli…</option>';
+    return fetch('/?models=1' + (host ? '&host=' + encodeURIComponent(host) : ''))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        const models = data.models || [];
+        const preferred = modelSelect.dataset.default || '';
+        modelSelect.innerHTML = '';
+        if (!models.length) {
+          const o = document.createElement('option');
+          o.value = '';
+          o.textContent = 'brak modeli';
+          modelSelect.appendChild(o);
+          llmStatus.textContent = data.message || 'Nie znaleziono serwera modeli.';
+          return;
+        }
+        let picked = false;
+        models.forEach(function (name) {
+          const o = document.createElement('option');
+          o.value = name;
+          o.textContent = name;
+          if (name === preferred) { o.selected = true; picked = true; }
+          modelSelect.appendChild(o);
+        });
+        if (!picked) {
+          const hint = models.find(function (n) { return n === 'gemma4:e2b'; })
+            || models.find(function (n) { return /gemma4:e2b|hy-mt|bielik/i.test(n); });
+          modelSelect.value = hint || models[0];
+        }
+        llmStatus.textContent = (data.backend === 'openai' ? 'llama.cpp' : 'ollama') + ' — ' + (data.host || '');
+        if (data.host && !hostInput.value.trim()) hostInput.placeholder = data.host;
+        syncLang();
+      })
+      .catch(function () {
+        modelSelect.innerHTML = '';
+        const o = document.createElement('option');
+        o.value = '';
+        o.textContent = 'brak modeli';
+        modelSelect.appendChild(o);
+        llmStatus.textContent = 'Nie można połączyć się z serwerem modeli.';
+      });
+  }
+
+  hostProbe.addEventListener('click', function () {
+    try {
+      localStorage.setItem(HOST_KEY, hostInput.value.trim());
+    } catch (e) { /* prywatne okno */ }
+    loadModels();
   });
+  hostInput.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); hostProbe.click(); }
+  });
+
+  loadModels();
   syncLang();
 
   function when(ts) {

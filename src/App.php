@@ -102,6 +102,11 @@ final class App
         <select name="model" id="model" data-default="{$defaultModel}" disabled>
           <option value="">ładowanie modeli…</option>
         </select>
+        <div class="llm-host" id="llm-host-row">
+          <input type="text" name="host" id="host" placeholder="ip:port serwera modeli" value="">
+          <button type="button" id="host-probe">Szukaj</button>
+        </div>
+        <p class="hint" id="llm-status"></p>
         <button class="run" type="submit">Capture</button>
         <p class="hint">status URL only — …/status/id</p>
       </form>
@@ -311,9 +316,19 @@ HTML;
     {
         $model = trim($model);
         if ($model !== '' && !OllamaCatalog::isValidName($model)) {
-            throw new FetchException('Nieprawidłowa nazwa modelu Ollama.');
+            throw new FetchException('Nieprawidłowa nazwa modelu.');
         }
-        $translator = OllamaTranslator::fromEnvironment($model !== '' ? $model : null);
+        $manualHost = trim((string) ($_POST['host'] ?? ''));
+        if ($manualHost !== '' && LlmEndpoint::normalizeUrl($manualHost) === null) {
+            throw new FetchException('Nieprawidłowy adres serwera modeli. Podaj ip:port, np. 192.168.1.110:8080.');
+        }
+        $endpoint = LlmEndpoint::detect($manualHost !== '' ? $manualHost : null);
+        if ($endpoint === null) {
+            throw new FetchException($manualHost !== ''
+                ? 'Pod adresem ' . $manualHost . ' nie ma serwera modeli.'
+                : 'Nie znaleziono serwera modeli (Ollama ani llama.cpp). Podaj adres ręcznie.');
+        }
+        $translator = OllamaTranslator::forEndpoint($endpoint, $model !== '' ? $model : null);
         if ($progress) {
             $this->emit(['stage' => 'translate', 'percent' => 8, 'label' => 'Ładowanie modelu…']);
         }
@@ -373,12 +388,44 @@ HTML;
     {
         header('Content-Type: application/json; charset=utf-8');
         header('Cache-Control: no-store');
+        $manual = trim((string) ($_GET['host'] ?? ''));
+        if ($manual !== '' && LlmEndpoint::normalizeUrl($manual) === null) {
+            http_response_code(400);
+            echo json_encode([
+                'ok' => false,
+                'models' => [],
+                'message' => 'Nieprawidłowy adres serwera modeli. Podaj ip:port, np. 192.168.1.110:8080.',
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return;
+        }
+        $endpoint = LlmEndpoint::detect($manual !== '' ? $manual : null);
+        if ($endpoint === null) {
+            http_response_code(503);
+            echo json_encode([
+                'ok' => false,
+                'models' => [],
+                'message' => $manual !== ''
+                    ? 'Pod adresem ' . $manual . ' nie ma Ollamy ani serwera zgodnego z OpenAI (llama.cpp).'
+                    : 'Nie znaleziono serwera modeli. Podaj adres ręcznie, np. 192.168.1.110:8080.',
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return;
+        }
         try {
-            $models = OllamaCatalog::fromEnvironment()->models();
-            echo json_encode(['ok' => true, 'models' => $models], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $models = OllamaCatalog::forEndpoint($endpoint)->models();
+            echo json_encode([
+                'ok' => true,
+                'models' => $models,
+                'host' => $endpoint->baseUrl,
+                'backend' => $endpoint->backend,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         } catch (FetchException $e) {
             http_response_code(503);
-            echo json_encode(['ok' => false, 'models' => [], 'message' => $e->getMessage()], JSON_UNESCAPED_UNICODE);
+            echo json_encode([
+                'ok' => false,
+                'models' => [],
+                'host' => $endpoint->baseUrl,
+                'message' => $e->getMessage(),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
     }
 
