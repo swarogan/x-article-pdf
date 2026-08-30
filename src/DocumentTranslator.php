@@ -53,6 +53,9 @@ final class DocumentTranslator
                 $title = $value;
                 continue;
             }
+            if ($job['field'] === 'html') {
+                $value = InlineHtml::sanitize($value);
+            }
             $blocks[$job['index']][$job['field']] = $value;
         }
 

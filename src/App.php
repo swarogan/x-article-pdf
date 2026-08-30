@@ -29,6 +29,14 @@ final class App
             $this->deleteFile((string) $_GET['delete']);
             return;
         }
+        if (isset($_GET['replay'])) {
+            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+                $this->home();
+                return;
+            }
+            $this->replayFromArchive((string) $_GET['replay']);
+            return;
+        }
         $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
         if ($method === 'POST') {
             $this->generate();
@@ -112,7 +120,10 @@ final class App
     <section class="stage">
       <div class="stage-head">
         <span id="stage-name">VIEWPORT</span>
-        <a id="stage-link" hidden href="#">download</a>
+        <span class="stage-actions">
+          <button type="button" id="stage-translate" hidden>translate</button>
+          <a id="stage-link" hidden href="#">download</a>
+        </span>
       </div>
       <div class="viewport">
         <div class="idle" id="idle"><b>NO SIGNAL</b><span>awaiting capture</span></div>
@@ -158,44 +169,10 @@ HTML;
                 $this->emit(['stage' => 'fetch', 'percent' => 4, 'label' => 'Pobieranie artykułu…']);
             }
             $client = new FxTwitterClient();
-            $doc = (new DocumentBuilder($client))->fromParsedUrl($parsed);
-            if ($targetLang !== null) {
-                $model = trim((string) ($_POST['model'] ?? ''));
-                if ($model !== '' && !OllamaCatalog::isValidName($model)) {
-                    throw new FetchException('Nieprawidłowa nazwa modelu Ollama.');
-                }
-                $translator = OllamaTranslator::fromEnvironment($model !== '' ? $model : null);
-                if ($progress) {
-                    $this->emit(['stage' => 'translate', 'percent' => 8, 'label' => 'Ładowanie modelu…']);
-                }
-                $translator->warmup(function (int $try, int $max) use ($progress): void {
-                    if (!$progress) {
-                        return;
-                    }
-                    $this->emit([
-                        'stage' => 'translate',
-                        'percent' => 8,
-                        'label' => 'Ładowanie modelu… (' . $try . '/' . $max . ')',
-                    ]);
-                });
-                $doc = (new DocumentTranslator($translator))->translate(
-                    $doc,
-                    $targetLang,
-                    function (int $current, int $total) use ($progress): void {
-                        if (!$progress) {
-                            return;
-                        }
-                        $percent = 8 + (int) round(80 * ($current / max(1, $total)));
-                        $this->emit([
-                            'stage' => 'translate',
-                            'current' => $current,
-                            'total' => $total,
-                            'percent' => $percent,
-                            'label' => 'Tłumaczenie ' . $current . '/' . $total,
-                        ]);
-                    },
-                );
-            }
+            $sourceDoc = (new DocumentBuilder($client))->fromParsedUrl($parsed);
+            $doc = $targetLang !== null
+                ? $this->translateDoc($sourceDoc, $targetLang, (string) ($_POST['model'] ?? ''), $progress)
+                : $sourceDoc;
             if ($progress) {
                 $this->emit([
                     'stage' => 'build',
@@ -203,19 +180,12 @@ HTML;
                     'label' => $format === 'md' ? 'Składanie Markdown…' : 'Składanie PDF…',
                 ]);
             }
-            if ($format === 'md') {
-                $body = (new MarkdownExporter())->build($doc);
-                $filename = MarkdownExporter::filename($doc);
-                $mime = 'text/markdown; charset=utf-8';
-            } else {
-                $media = new MediaStore($jobDir . '/media');
-                $html = (new HtmlRenderer($media))->render($doc);
-                $body = (new PdfExporter($jobDir . '/mpdf'))->build($html);
-                $filename = PdfExporter::filename($doc);
-                $mime = 'application/pdf';
-            }
+            $out = $this->exportDocument($doc, $format, $jobDir);
+            $body = $out['body'];
+            $filename = $out['filename'];
+            $mime = $out['mime'];
             if ($progress) {
-                $item = $this->archive()->save($body, $filename, $mime, $doc->title, $doc->url, $format);
+                $item = $this->archive()->save($body, $filename, $mime, $doc->title, $doc->url, $format, $sourceDoc);
                 $this->emit([
                     'stage' => 'done',
                     'percent' => 100,
@@ -244,6 +214,146 @@ HTML;
         } finally {
             $this->removeDir($jobDir);
         }
+    }
+
+    private function replayFromArchive(string $id): void
+    {
+        $progress = isset($_POST['progress']);
+        $format = (string) ($_POST['format'] ?? 'pdf') === 'md' ? 'md' : 'pdf';
+        $targetLang = LanguageCatalog::resolve(
+            (string) ($_POST['lang'] ?? ''),
+            (string) ($_POST['lang_custom'] ?? ''),
+        );
+        if ($progress) {
+            $this->beginProgress();
+        }
+        if ($targetLang === null) {
+            $this->failReplay('Wybierz język tłumaczenia.', $progress);
+            return;
+        }
+        $archive = $this->archive();
+        $sourceDoc = $archive->source($id);
+        $found = $archive->get($id);
+        if ($sourceDoc === null || $found === null) {
+            $this->failReplay(
+                'Ten plik nie ma zapisanej treści. Zrób Capture jeszcze raz — potem można tłumaczyć bez pobierania z X.',
+                $progress,
+            );
+            return;
+        }
+        set_time_limit(900);
+        ignore_user_abort(true);
+        $jobDir = $this->root . '/storage/tmp/' . bin2hex(random_bytes(8));
+        try {
+            $doc = $this->translateDoc($sourceDoc, $targetLang, (string) ($_POST['model'] ?? ''), $progress);
+            if ($progress) {
+                $this->emit([
+                    'stage' => 'build',
+                    'percent' => 90,
+                    'label' => $format === 'md' ? 'Składanie Markdown…' : 'Składanie PDF…',
+                ]);
+            }
+            $out = $this->exportDocument($doc, $format, $jobDir);
+            $item = $archive->save(
+                $out['body'],
+                $out['filename'],
+                $out['mime'],
+                $doc->title,
+                $doc->url,
+                $format,
+                $sourceDoc,
+            );
+            if ($progress) {
+                $this->emit([
+                    'stage' => 'done',
+                    'percent' => 100,
+                    'label' => 'Gotowe',
+                    'item' => $item,
+                    'filename' => $out['filename'],
+                ]);
+                return;
+            }
+            header('Content-Type: ' . $out['mime']);
+            header('Content-Disposition: attachment; filename="' . $out['filename'] . '"');
+            header('Content-Length: ' . (string) strlen($out['body']));
+            echo $out['body'];
+        } catch (FetchException $e) {
+            $this->failReplay($e->getMessage(), $progress);
+        } catch (\Throwable $e) {
+            $this->failReplay('Nie udało się złożyć pliku: ' . $e->getMessage(), $progress);
+        } finally {
+            $this->removeDir($jobDir);
+        }
+    }
+
+    private function failReplay(string $message, bool $progress): void
+    {
+        if ($progress) {
+            $this->emit(['stage' => 'error', 'message' => $message]);
+            return;
+        }
+        $this->home($message);
+    }
+
+    private function translateDoc(ArticleDocument $doc, string $targetLang, string $model, bool $progress): ArticleDocument
+    {
+        $model = trim($model);
+        if ($model !== '' && !OllamaCatalog::isValidName($model)) {
+            throw new FetchException('Nieprawidłowa nazwa modelu Ollama.');
+        }
+        $translator = OllamaTranslator::fromEnvironment($model !== '' ? $model : null);
+        if ($progress) {
+            $this->emit(['stage' => 'translate', 'percent' => 8, 'label' => 'Ładowanie modelu…']);
+        }
+        $translator->warmup(function (int $try, int $max) use ($progress): void {
+            if (!$progress) {
+                return;
+            }
+            $this->emit([
+                'stage' => 'translate',
+                'percent' => 8,
+                'label' => 'Ładowanie modelu… (' . $try . '/' . $max . ')',
+            ]);
+        });
+
+        return (new DocumentTranslator($translator))->translate(
+            $doc,
+            $targetLang,
+            function (int $current, int $total) use ($progress): void {
+                if (!$progress) {
+                    return;
+                }
+                $percent = 8 + (int) round(80 * ($current / max(1, $total)));
+                $this->emit([
+                    'stage' => 'translate',
+                    'current' => $current,
+                    'total' => $total,
+                    'percent' => $percent,
+                    'label' => 'Tłumaczenie ' . $current . '/' . $total,
+                ]);
+            },
+        );
+    }
+
+    /**
+     * @return array{body: string, filename: string, mime: string}
+     */
+    private function exportDocument(ArticleDocument $doc, string $format, string $jobDir): array
+    {
+        if ($format === 'md') {
+            return [
+                'body' => (new MarkdownExporter())->build($doc),
+                'filename' => MarkdownExporter::filename($doc),
+                'mime' => 'text/markdown; charset=utf-8',
+            ];
+        }
+        $media = new MediaStore($jobDir . '/media');
+        $html = (new HtmlRenderer($media))->render($doc);
+        return [
+            'body' => (new PdfExporter($jobDir . '/mpdf'))->build($html),
+            'filename' => PdfExporter::filename($doc),
+            'mime' => 'application/pdf',
+        ];
     }
 
     private function listModels(): void

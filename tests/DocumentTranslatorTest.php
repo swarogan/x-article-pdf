@@ -39,6 +39,33 @@ final class DocumentTranslatorTest extends TestCase
         $this->assertSame('https://x.com/anna/status/1', $out->url);
         $this->assertSame('anna', $out->author->handle);
     }
+
+    public function testSanitizesTranslatedHtmlSoDocumentTagsCannotCutThePdf(): void
+    {
+        $doc = new ArticleDocument(
+            id: '1',
+            url: 'https://x.com/anna/status/1',
+            title: 'Hello world',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [
+                ['type' => 'paragraph', 'html' => 'Keep going'],
+            ],
+            isLongArticle: true,
+        );
+        $out = (new DocumentTranslator(new class implements Translator {
+            public function translate(array $texts, string $targetLanguage, ?callable $onProgress = null): array
+            {
+                return ['T', 'Part </html><script>x</script> 3 < 4 <a href="https://x.com/a">A'];
+            }
+        }))->translate($doc, 'Polish');
+        $this->assertSame('T', $out->title);
+        $this->assertStringContainsString('3 &lt; 4', $out->blocks[0]['html']);
+        $this->assertStringContainsString('<a href="https://x.com/a">A</a>', $out->blocks[0]['html']);
+        $this->assertStringNotContainsString('</html>', $out->blocks[0]['html']);
+        $this->assertStringNotContainsString('<script>', $out->blocks[0]['html']);
+    }
 }
 
 final class PrefixTranslator implements Translator

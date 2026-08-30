@@ -43,6 +43,34 @@ final class HtmlRendererTest extends TestCase
         $this->assertStringContainsString('Treść', $html);
     }
 
+    public function testKeepsLaterBlocksWhenEarlierHtmlClosesTheDocument(): void
+    {
+        $dir = sys_get_temp_dir() . '/xpdf-test-' . bin2hex(random_bytes(4));
+        $store = new class ($dir) extends MediaStore {
+            public function localPath(string $url): ?string
+            {
+                return null;
+            }
+        };
+        $html = (new HtmlRenderer($store))->render(new ArticleDocument(
+            id: '1',
+            url: 'https://x.com/anna/status/1',
+            title: 'T',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [
+                ['type' => 'paragraph', 'html' => 'Four </html></body> leftover'],
+                ['type' => 'heading', 'level' => 2, 'html' => '6. A2A changes the meaning'],
+            ],
+            isLongArticle: true,
+        ));
+        $this->assertStringContainsString('Four', $html);
+        $this->assertStringContainsString('leftover', $html);
+        $this->assertStringContainsString('6. A2A changes the meaning', $html);
+        $this->assertSame(1, substr_count(strtolower($html), '</html>'));
+    }
+
     public function testRendersMarkdownAndRewritesImages(): void
     {
         $dir = sys_get_temp_dir() . '/xpdf-test-' . bin2hex(random_bytes(4));

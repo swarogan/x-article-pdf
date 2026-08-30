@@ -188,7 +188,17 @@ button.run:disabled { opacity: .45; cursor: wait; }
   letter-spacing: .18em;
   font-size: 10px;
 }
-.stage-head a { color: var(--hot); text-decoration: none; }
+.stage-head a, .stage-head button { color: var(--hot); text-decoration: none; }
+.stage-actions { display: flex; gap: 14px; align-items: center; }
+.stage-head button {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
 .viewport {
   flex: 1;
   min-height: 0;

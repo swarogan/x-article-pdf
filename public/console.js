@@ -14,10 +14,12 @@
   const mdView = document.getElementById('md-view');
   const stageName = document.getElementById('stage-name');
   const stageLink = document.getElementById('stage-link');
+  const stageTranslate = document.getElementById('stage-translate');
 
   let timerId = 0;
   let startedAt = 0;
   let activeId = '';
+  let activeItem = null;
 
   function formatElapsed(ms) {
     const s = Math.floor(ms / 1000);
@@ -130,6 +132,7 @@
 
   function closeDoc() {
     activeId = '';
+    activeItem = null;
     frame.hidden = true;
     frame.removeAttribute('src');
     mdView.hidden = true;
@@ -137,6 +140,7 @@
     idle.hidden = false;
     stageName.textContent = 'VIEWPORT';
     stageLink.hidden = true;
+    stageTranslate.hidden = true;
   }
 
   function deleteDoc(item) {
@@ -159,10 +163,12 @@
 
   function openDoc(item) {
     activeId = item.id;
+    activeItem = item;
     idle.hidden = true;
     stageName.textContent = (item.title || item.filename || 'DOCUMENT').toUpperCase();
     stageLink.href = '/?file=' + encodeURIComponent(item.id) + '&download=1';
     stageLink.hidden = false;
+    stageTranslate.hidden = !item.hasSource;
     document.querySelectorAll('#hist-list li').forEach(function (li) {
       li.classList.toggle('active', li.querySelector('a') && li.querySelector('a').dataset.id === item.id);
     });
@@ -180,17 +186,17 @@
     frame.src = '/?file=' + encodeURIComponent(item.id) + '&inline=1';
   }
 
-  form.addEventListener('submit', async function (e) {
-    e.preventDefault();
+  async function runJob(url) {
     progress.classList.add('on');
     button.disabled = true;
+    stageTranslate.disabled = true;
     fill.style.width = '2%';
     status.textContent = 'Start…';
     startTimer();
     const data = new FormData(form);
     data.set('progress', '1');
     try {
-      const res = await fetch('/', { method: 'POST', body: data });
+      const res = await fetch(url, { method: 'POST', body: data });
       if (!res.body) throw new Error('Brak odpowiedzi');
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -216,7 +222,27 @@
     } finally {
       stopTimer();
       button.disabled = false;
+      stageTranslate.disabled = false;
     }
+  }
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    runJob('/');
+  });
+
+  stageTranslate.addEventListener('click', function () {
+    if (!activeItem || !activeItem.hasSource) {
+      status.textContent = 'Ten plik nie ma zapisanej treści. Capture jeszcze raz.';
+      progress.classList.add('on');
+      return;
+    }
+    if (!langSelect.value) {
+      status.textContent = 'Wybierz język tłumaczenia.';
+      progress.classList.add('on');
+      return;
+    }
+    runJob('/?replay=' + encodeURIComponent(activeItem.id));
   });
 
   function handle(ev) {

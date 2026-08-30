@@ -95,7 +95,7 @@ HTML;
                     $html .= '<' . $want . '>';
                     $listType = $want;
                 }
-                $html .= '<li>' . ($block['html'] ?? '') . '</li>';
+                $html .= '<li>' . InlineHtml::sanitize((string) ($block['html'] ?? '')) . '</li>';
                 continue;
             }
             if ($listType !== null) {
@@ -117,9 +117,9 @@ HTML;
     private function renderBlock(array $block): string
     {
         return match ((string) ($block['type'] ?? '')) {
-            'paragraph' => '<p>' . ($block['html'] ?? '') . '</p>',
+            'paragraph' => '<p>' . InlineHtml::sanitize((string) ($block['html'] ?? '')) . '</p>',
             'heading' => $this->heading($block),
-            'quote-line' => '<div class="quote">' . ($block['html'] ?? '') . '</div>',
+            'quote-line' => '<div class="quote">' . InlineHtml::sanitize((string) ($block['html'] ?? '')) . '</div>',
             'image' => $this->figure((string) ($block['url'] ?? ''), (string) ($block['caption'] ?? ''), 480),
             'video' => $this->video($block),
             'tweet' => $this->tweet($block),
@@ -139,7 +139,7 @@ HTML;
         $level = (int) ($block['level'] ?? 2);
         $level = max(1, min(3, $level));
 
-        return '<h' . $level . '>' . ($block['html'] ?? '') . '</h' . $level . '>';
+        return '<h' . $level . '>' . InlineHtml::sanitize((string) ($block['html'] ?? '')) . '</h' . $level . '>';
     }
 
     /**
