@@ -29,7 +29,8 @@ Default translation model: `gemma4:e2b` (change it in the UI or with `OLLAMA_TRA
 
 The app probes `127.0.0.1:11434` (Ollama, `/api/*`) and `127.0.0.1:8080` (OpenAI-compatible `/v1/*`, e.g. `llama-server`),
 picking whichever answers first. Override with `LLM_HOST` / `OLLAMA_HOST`, or type `ip:port` in the UI field below the
-model list — a host given there is the only one probed, so a typo fails loudly instead of silently using a local server.
+model list — a host given there is the only one probed, so a typo fails loudly instead of silently using a local
+server. Without a port (`192.168.1.20`) it tries `:11434` (Ollama), then `:8080` (llama.cpp), then the address as given.
 
 The Stop button cancels a running job, including the translation loop on the server. `start.sh` sets
 `PHP_CLI_SERVER_WORKERS=4` for that reason — the built-in PHP server otherwise handles one request at a

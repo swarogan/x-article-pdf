@@ -43,7 +43,7 @@ final readonly class LlmEndpoint
     {
         $manual = is_string($manualHost) ? self::normalizeUrl($manualHost) : null;
         if ($manual !== null) {
-            return [$manual];
+            return self::withDefaultPorts($manual);
         }
         $raw = [
             getenv('LLM_HOST') ?: null,
@@ -60,6 +60,22 @@ final readonly class LlmEndpoint
         }
 
         return $out;
+    }
+
+    /**
+     * Sam adres bez portu: najpierw port Ollamy, potem llama.cpp, na końcu adres tak jak podany
+     * (gdyby serwer stał za proxy na porcie domyślnym).
+     *
+     * @return list<string>
+     */
+    private static function withDefaultPorts(string $url): array
+    {
+        $parts = parse_url($url);
+        if (is_array($parts) && isset($parts['port'])) {
+            return [$url];
+        }
+
+        return [$url . ':11434', $url . ':8080', $url];
     }
 
     public static function normalizeUrl(string $input): ?string

@@ -78,6 +78,19 @@ final class LlmEndpointTest extends TestCase
         $this->assertSame(['http://192.168.1.110:8080'], LlmEndpoint::candidates('192.168.1.110:8080'));
     }
 
+    public function testHostWithoutPortIsProbedOnOllamaPortFirst(): void
+    {
+        $candidates = LlmEndpoint::candidates('192.168.1.20');
+        $this->assertSame('http://192.168.1.20:11434', $candidates[0]);
+        $this->assertContains('http://192.168.1.20:8080', $candidates);
+        $this->assertContains('http://192.168.1.20', $candidates);
+    }
+
+    public function testPortGivenExplicitlyIsNotReplacedByDefaults(): void
+    {
+        $this->assertSame(['http://192.168.1.20:80'], LlmEndpoint::candidates('192.168.1.20:80'));
+    }
+
     public function testWithoutManualHostLocalDefaultsAreProbed(): void
     {
         $candidates = LlmEndpoint::candidates(null);

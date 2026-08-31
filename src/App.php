@@ -436,8 +436,9 @@ HTML;
                 'ok' => false,
                 'models' => [],
                 'message' => $manual !== ''
-                    ? 'Pod adresem ' . $manual . ' nie ma Ollamy ani serwera zgodnego z OpenAI (llama.cpp).'
-                    : 'Nie znaleziono serwera modeli. Podaj adres ręcznie, np. 192.168.1.110:8080.',
+                    ? 'Pod adresem ' . $manual . ' (sprawdzone: '
+                        . implode(', ', LlmEndpoint::candidates($manual)) . ') nie ma Ollamy ani serwera zgodnego z OpenAI.'
+                    : 'Nie znaleziono serwera modeli. Podaj adres ręcznie, np. 192.168.1.20 albo 192.168.1.20:8080.',
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             return;
         }
