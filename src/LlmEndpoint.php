@@ -91,15 +91,18 @@ final readonly class LlmEndpoint
     }
 
     /**
+     * Protokół wynika ze ścieżki, która odpowiedziała listą modeli. llama-server podaje
+     * na /v1/models zarówno 'data', jak i ollamowe 'models', więc kolejność kluczy nic nie mówi.
+     *
      * @param array<string, mixed> $payload
      */
-    public static function backendFromPayload(array $payload): ?string
+    public static function backendForPath(string $path, array $payload): ?string
     {
-        if (isset($payload['models']) && is_array($payload['models'])) {
-            return self::BACKEND_OLLAMA;
+        if ($path === '/api/tags') {
+            return isset($payload['models']) && is_array($payload['models']) ? self::BACKEND_OLLAMA : null;
         }
-        if (isset($payload['data']) && is_array($payload['data'])) {
-            return self::BACKEND_OPENAI;
+        if ($path === '/v1/models') {
+            return isset($payload['data']) && is_array($payload['data']) ? self::BACKEND_OPENAI : null;
         }
 
         return null;
@@ -107,10 +110,11 @@ final readonly class LlmEndpoint
 
     private static function probe(string $baseUrl): ?string
     {
-        foreach (['/api/tags' => self::BACKEND_OLLAMA, '/v1/models' => self::BACKEND_OPENAI] as $path => $expected) {
+        foreach (['/api/tags', '/v1/models'] as $path) {
             $payload = self::getJson($baseUrl . $path);
-            if ($payload !== null && self::backendFromPayload($payload) === $expected) {
-                return $expected;
+            $backend = $payload === null ? null : self::backendForPath($path, $payload);
+            if ($backend !== null) {
+                return $backend;
             }
         }
 

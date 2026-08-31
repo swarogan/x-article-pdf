@@ -34,7 +34,7 @@ final class LlmEndpointTest extends TestCase
     {
         $this->assertSame(
             LlmEndpoint::BACKEND_OLLAMA,
-            LlmEndpoint::backendFromPayload(['models' => [['name' => 'gemma4:e2b']]]),
+            LlmEndpoint::backendForPath('/api/tags', ['models' => [['name' => 'gemma4:e2b']]]),
         );
     }
 
@@ -42,14 +42,35 @@ final class LlmEndpointTest extends TestCase
     {
         $this->assertSame(
             LlmEndpoint::BACKEND_OPENAI,
-            LlmEndpoint::backendFromPayload(['object' => 'list', 'data' => [['id' => 'gemma-3-4b', 'object' => 'model']]]),
+            LlmEndpoint::backendForPath('/v1/models', ['object' => 'list', 'data' => [['id' => 'gemma-3-4b']]]),
         );
+    }
+
+    /**
+     * llama-server zwraca na /v1/models zarówno 'data', jak i ollamowe 'models'.
+     * O protokole decyduje ścieżka, która odpowiedziała, a nie kolejność kluczy.
+     */
+    public function testLlamaCppHybridPayloadIsRecognisedAsOpenAi(): void
+    {
+        $payload = [
+            'models' => [['name' => '/mnt/models/gemma-4-12B.gguf', 'model' => '/mnt/models/gemma-4-12B.gguf']],
+            'object' => 'list',
+            'data' => [['id' => '/mnt/models/gemma-4-12B.gguf', 'object' => 'model']],
+        ];
+        $this->assertSame(LlmEndpoint::BACKEND_OPENAI, LlmEndpoint::backendForPath('/v1/models', $payload));
+    }
+
+    public function testNotFoundBodyOnTagsIsNotAnOllamaServer(): void
+    {
+        $this->assertNull(LlmEndpoint::backendForPath('/api/tags', [
+            'error' => ['message' => 'File Not Found', 'code' => 404],
+        ]));
     }
 
     public function testUnknownPayloadHasNoBackend(): void
     {
-        $this->assertNull(LlmEndpoint::backendFromPayload(['hello' => 'world']));
-        $this->assertNull(LlmEndpoint::backendFromPayload([]));
+        $this->assertNull(LlmEndpoint::backendForPath('/api/tags', ['hello' => 'world']));
+        $this->assertNull(LlmEndpoint::backendForPath('/v1/models', []));
     }
 
     public function testManualHostIsTheOnlyCandidateSoNothingElseAnswersInItsPlace(): void
