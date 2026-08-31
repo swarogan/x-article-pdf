@@ -247,6 +247,7 @@
   let currentJob = null;
   let aborter = null;
   let stopping = false;
+  let warmingUp = false;
 
   function randomJobId() {
     const bytes = new Uint8Array(8);
@@ -276,6 +277,7 @@
     startTimer();
     currentJob = randomJobId();
     stopping = false;
+    warmingUp = false;
     aborter = new AbortController();
     stopButton.disabled = false;
     stopButton.hidden = false;
@@ -307,9 +309,13 @@
         fill.style.width = '0%';
       } else {
         const msg = err && err.message ? err.message : String(err);
-        status.textContent = msg === 'Error in input stream'
-          ? 'Połączenie przerwane. Wybierz mniejszy model albo wyłącz tłumaczenie.'
-          : msg;
+        if (msg === 'Error in input stream') {
+          status.textContent = warmingUp
+            ? 'Połączenie przerwane w trakcie ładowania modelu. Serwer modeli może go jeszcze wczytywać — spróbuj ponownie za chwilę.'
+            : 'Połączenie przerwane. Wybierz mniejszy model albo wyłącz tłumaczenie.';
+        } else {
+          status.textContent = msg;
+        }
       }
     } finally {
       stopTimer();
@@ -356,6 +362,9 @@
       fill.style.width = Math.max(0, Math.min(100, ev.percent)) + '%';
     }
     if (ev.label) status.textContent = ev.label;
+    if (typeof ev.label === 'string') {
+      warmingUp = ev.label.indexOf('Ładowanie modelu') === 0;
+    }
     if (ev.stage === 'done' && ev.item) {
       fill.style.width = '100%';
       status.textContent = 'Gotowe';

@@ -7,6 +7,10 @@ namespace XArticlePdf;
 final class OllamaTranslator implements Translator
 {
     private const MAX_SOURCE_CHARS = 1800;
+    /** Ładowanie dużego modelu potrafi trwać kilka minut — stąd wiele krótkich prób. */
+    private const WARMUP_ATTEMPTS = 40;
+    private const WARMUP_ATTEMPT_TIMEOUT = 15;
+    private const WARMUP_PAUSE = 2;
 
     public function __construct(
         private readonly string $baseUrl = 'http://127.0.0.1:11434',
@@ -42,30 +46,37 @@ final class OllamaTranslator implements Translator
     }
 
     /**
+     * Czeka, aż serwer załaduje model. Każda próba jest krótka i zgłaszana przez $onTry —
+     * długie żądanie bez żadnego sygnału zrywa strumień postępu w przeglądarce.
+     *
      * @param (callable(int, int): void)|null $onTry
      */
-    public function warmup(?callable $onTry = null): void
-    {
-        $attempts = 6;
+    public function warmup(
+        ?callable $onTry = null,
+        int $attempts = self::WARMUP_ATTEMPTS,
+        int $attemptTimeout = self::WARMUP_ATTEMPT_TIMEOUT,
+        int $pauseSeconds = self::WARMUP_PAUSE,
+    ): void {
         $last = null;
         for ($try = 1; $try <= $attempts; $try++) {
             if ($onTry !== null) {
                 $onTry($try, $attempts);
             }
             try {
-                $this->generate('/no_think\nping', 8);
+                $this->generateOnce('/no_think\nping', 8, $attemptTimeout);
                 return;
             } catch (FetchException $e) {
                 $last = $e;
-                if ($try === $attempts || (!$this->isTransient($e->getMessage()) && $try >= 2)) {
+                if (!$this->isTransient($e->getMessage()) && $try >= 2) {
                     throw $e;
                 }
-                sleep(min(10, $try * 2));
+                if ($try < $attempts && $pauseSeconds > 0) {
+                    sleep($pauseSeconds);
+                }
             }
         }
-        if ($last instanceof FetchException) {
-            throw $last;
-        }
+
+        throw $last ?? new FetchException('Serwer modeli nie załadował modelu.');
     }
 
     public function translate(array $texts, string $targetLanguage, ?callable $onProgress = null): array
@@ -165,7 +176,7 @@ final class OllamaTranslator implements Translator
         throw $last ?? new FetchException('Tłumaczenie nie wyszło.');
     }
 
-    private function generateOnce(string $prompt, int $numPredict): string
+    private function generateOnce(string $prompt, int $numPredict, ?int $timeout = null): string
     {
         $openAi = $this->backend === LlmEndpoint::BACKEND_OPENAI;
         $payload = $openAi
@@ -197,7 +208,7 @@ final class OllamaTranslator implements Translator
                 'method' => 'POST',
                 'header' => "Content-Type: application/json\r\n",
                 'content' => $body,
-                'timeout' => $this->timeoutSeconds,
+                'timeout' => $timeout ?? $this->timeoutSeconds,
                 'ignore_errors' => true,
             ],
         ]);
