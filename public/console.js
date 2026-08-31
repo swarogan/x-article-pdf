@@ -243,6 +243,30 @@
     frame.src = '/?file=' + encodeURIComponent(item.id) + '&inline=1';
   }
 
+  const stopButton = document.getElementById('stop');
+  let currentJob = null;
+  let aborter = null;
+  let stopping = false;
+
+  function randomJobId() {
+    const bytes = new Uint8Array(8);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes).map(function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+  }
+
+  stopButton.addEventListener('click', function () {
+    if (!currentJob || stopping) return;
+    stopping = true;
+    stopButton.disabled = true;
+    status.textContent = 'Przerywanie…';
+    const job = currentJob;
+    fetch('/?cancel=' + encodeURIComponent(job), { method: 'POST' })
+      .catch(function () { /* i tak przerywamy po stronie przeglądarki */ })
+      .then(function () {
+        if (aborter) aborter.abort();
+      });
+  });
+
   async function runJob(url) {
     progress.classList.add('on');
     button.disabled = true;
@@ -250,10 +274,16 @@
     fill.style.width = '2%';
     status.textContent = 'Start…';
     startTimer();
+    currentJob = randomJobId();
+    stopping = false;
+    aborter = new AbortController();
+    stopButton.disabled = false;
+    stopButton.hidden = false;
     const data = new FormData(form);
     data.set('progress', '1');
+    data.set('job', currentJob);
     try {
-      const res = await fetch(url, { method: 'POST', body: data });
+      const res = await fetch(url, { method: 'POST', body: data, signal: aborter.signal });
       if (!res.body) throw new Error('Brak odpowiedzi');
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -272,14 +302,24 @@
         }
       }
     } catch (err) {
-      const msg = err && err.message ? err.message : String(err);
-      status.textContent = msg === 'Error in input stream'
-        ? 'Połączenie przerwane. Wybierz mniejszy model albo wyłącz tłumaczenie.'
-        : msg;
+      if (stopping) {
+        status.textContent = 'Przerwano';
+        fill.style.width = '0%';
+      } else {
+        const msg = err && err.message ? err.message : String(err);
+        status.textContent = msg === 'Error in input stream'
+          ? 'Połączenie przerwane. Wybierz mniejszy model albo wyłącz tłumaczenie.'
+          : msg;
+      }
     } finally {
       stopTimer();
       button.disabled = false;
       stageTranslate.disabled = false;
+      stopButton.hidden = true;
+      stopButton.disabled = false;
+      currentJob = null;
+      aborter = null;
+      stopping = false;
     }
   }
 
@@ -303,6 +343,11 @@
   });
 
   function handle(ev) {
+    if (ev.stage === 'cancelled') {
+      status.textContent = ev.message || 'Przerwano';
+      fill.style.width = '0%';
+      return;
+    }
     if (ev.stage === 'error') {
       status.textContent = ev.message || 'Błąd';
       return;

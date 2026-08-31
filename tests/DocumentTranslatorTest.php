@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use XArticlePdf\ArticleDocument;
 use XArticlePdf\Author;
 use XArticlePdf\DocumentTranslator;
+use XArticlePdf\JobCancelledException;
 use XArticlePdf\Translator;
 
 final class DocumentTranslatorTest extends TestCase
@@ -109,6 +110,48 @@ final class PrefixTranslator implements Translator
     {
         $out = [];
         foreach ($texts as $text) {
+            $out[] = 'PL:' . $text;
+        }
+
+        return $out;
+    }
+
+    public function testStopFromProgressCallbackAbortsTranslationInsteadOfBeingRetried(): void
+    {
+        $doc = new ArticleDocument(
+            id: '1',
+            url: 'https://x.com/anna/status/1',
+            title: 'Hello world',
+            author: new Author('Anna', 'anna', null, 'https://x.com/anna'),
+            publishedAt: null,
+            coverUrl: null,
+            blocks: [
+                ['type' => 'paragraph', 'html' => 'First paragraph'],
+                ['type' => 'paragraph', 'html' => 'Second paragraph'],
+            ],
+            isLongArticle: true,
+        );
+        $translator = new CountingTranslator();
+
+        $this->expectException(JobCancelledException::class);
+        (new DocumentTranslator($translator))->translate($doc, 'Polish', static function (): void {
+            throw new JobCancelledException('Przerwano.');
+        });
+    }
+}
+
+final class CountingTranslator implements Translator
+{
+    public int $calls = 0;
+
+    public function translate(array $texts, string $targetLanguage, ?callable $onProgress = null): array
+    {
+        $out = [];
+        foreach ($texts as $i => $text) {
+            $this->calls++;
+            if ($onProgress !== null) {
+                $onProgress($i + 1, count($texts));
+            }
             $out[] = 'PL:' . $text;
         }
 

@@ -29,6 +29,10 @@ final class App
             $this->deleteFile((string) $_GET['delete']);
             return;
         }
+        if (isset($_GET['cancel'])) {
+            $this->cancelJob((string) $_GET['cancel']);
+            return;
+        }
         if (isset($_GET['replay'])) {
             if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
                 $this->home();
@@ -108,6 +112,7 @@ final class App
         </div>
         <p class="hint" id="llm-status"></p>
         <button class="run" type="submit">Capture</button>
+        <button class="stop" type="button" id="stop" hidden>Stop</button>
         <p class="hint">status URL only — …/status/id</p>
       </form>
       <div class="progress" id="progress">
@@ -146,6 +151,8 @@ HTML;
     private function generate(): void
     {
         $progress = isset($_POST['progress']);
+        $jobId = (string) ($_POST['job'] ?? '');
+        $jobId = JobControl::isValidId($jobId) ? $jobId : '';
         $url = trim((string) ($_POST['url'] ?? ''));
         $format = (string) ($_POST['format'] ?? 'pdf') === 'md' ? 'md' : 'pdf';
         $targetLang = LanguageCatalog::resolve(
@@ -175,8 +182,9 @@ HTML;
             }
             $client = new FxTwitterClient();
             $sourceDoc = (new DocumentBuilder($client))->fromParsedUrl($parsed);
+            $this->stopIfCancelled($jobId);
             $doc = $targetLang !== null
-                ? $this->translateDoc($sourceDoc, $targetLang, (string) ($_POST['model'] ?? ''), $progress)
+                ? $this->translateDoc($sourceDoc, $targetLang, (string) ($_POST['model'] ?? ''), $progress, $jobId)
                 : $sourceDoc;
             if ($progress) {
                 $this->emit([
@@ -214,6 +222,12 @@ HTML;
             header('Content-Disposition: attachment; filename="' . $filename . '"');
             header('Content-Length: ' . (string) strlen($body));
             echo $body;
+        } catch (JobCancelledException $e) {
+            if ($progress) {
+                $this->emit(['stage' => 'cancelled', 'message' => 'Przerwano.']);
+                return;
+            }
+            $this->home('Przerwano.', $url, $format, (string) ($_POST['lang'] ?? ''), (string) ($_POST['lang_custom'] ?? ''));
         } catch (FetchException $e) {
             if ($progress) {
                 $this->emit(['stage' => 'error', 'message' => $e->getMessage()]);
@@ -227,6 +241,7 @@ HTML;
             }
             $this->home('Nie udało się złożyć pliku: ' . $e->getMessage(), $url, $format, (string) ($_POST['lang'] ?? ''), (string) ($_POST['lang_custom'] ?? ''));
         } finally {
+            $this->jobControl()->clear($jobId);
             $this->removeDir($jobDir);
         }
     }
@@ -234,6 +249,8 @@ HTML;
     private function replayFromArchive(string $id): void
     {
         $progress = isset($_POST['progress']);
+        $jobId = (string) ($_POST['job'] ?? '');
+        $jobId = JobControl::isValidId($jobId) ? $jobId : '';
         $format = (string) ($_POST['format'] ?? 'pdf') === 'md' ? 'md' : 'pdf';
         $targetLang = LanguageCatalog::resolve(
             (string) ($_POST['lang'] ?? ''),
@@ -260,7 +277,7 @@ HTML;
         ignore_user_abort(true);
         $jobDir = $this->root . '/storage/tmp/' . bin2hex(random_bytes(8));
         try {
-            $doc = $this->translateDoc($sourceDoc, $targetLang, (string) ($_POST['model'] ?? ''), $progress);
+            $doc = $this->translateDoc($sourceDoc, $targetLang, (string) ($_POST['model'] ?? ''), $progress, $jobId);
             if ($progress) {
                 $this->emit([
                     'stage' => 'build',
@@ -294,11 +311,18 @@ HTML;
             header('Content-Disposition: attachment; filename="' . $out['filename'] . '"');
             header('Content-Length: ' . (string) strlen($out['body']));
             echo $out['body'];
+        } catch (JobCancelledException $e) {
+            if ($progress) {
+                $this->emit(['stage' => 'cancelled', 'message' => 'Przerwano.']);
+            } else {
+                $this->home('Przerwano.');
+            }
         } catch (FetchException $e) {
             $this->failReplay($e->getMessage(), $progress);
         } catch (\Throwable $e) {
             $this->failReplay('Nie udało się złożyć pliku: ' . $e->getMessage(), $progress);
         } finally {
+            $this->jobControl()->clear($jobId);
             $this->removeDir($jobDir);
         }
     }
@@ -312,8 +336,13 @@ HTML;
         $this->home($message);
     }
 
-    private function translateDoc(ArticleDocument $doc, string $targetLang, string $model, bool $progress): ArticleDocument
-    {
+    private function translateDoc(
+        ArticleDocument $doc,
+        string $targetLang,
+        string $model,
+        bool $progress,
+        string $jobId = '',
+    ): ArticleDocument {
         $model = trim($model);
         if ($model !== '' && !OllamaCatalog::isValidName($model)) {
             throw new FetchException('Nieprawidłowa nazwa modelu.');
@@ -332,7 +361,8 @@ HTML;
         if ($progress) {
             $this->emit(['stage' => 'translate', 'percent' => 8, 'label' => 'Ładowanie modelu…']);
         }
-        $translator->warmup(function (int $try, int $max) use ($progress): void {
+        $translator->warmup(function (int $try, int $max) use ($progress, $jobId): void {
+            $this->stopIfCancelled($jobId);
             if (!$progress) {
                 return;
             }
@@ -346,7 +376,8 @@ HTML;
         return (new DocumentTranslator($translator))->translate(
             $doc,
             $targetLang,
-            function (int $current, int $total) use ($progress): void {
+            function (int $current, int $total) use ($progress, $jobId): void {
+                $this->stopIfCancelled($jobId);
                 if (!$progress) {
                     return;
                 }
@@ -447,6 +478,34 @@ HTML;
     {
         echo json_encode($event, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
         flush();
+    }
+
+    private function cancelJob(string $jobId): void
+    {
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-store');
+        if (!JobControl::isValidId($jobId)) {
+            http_response_code(400);
+            echo json_encode(['ok' => false], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        $this->jobControl()->cancel($jobId);
+        echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
+    }
+
+    private function jobControl(): JobControl
+    {
+        return new JobControl($this->root . '/storage/tmp/jobs');
+    }
+
+    /**
+     * Rzuca, gdy użytkownik nacisnął Stop — sprawdzane między fragmentami tłumaczenia.
+     */
+    private function stopIfCancelled(string $jobId): void
+    {
+        if ($jobId !== '' && $this->jobControl()->isCancelled($jobId)) {
+            throw new JobCancelledException('Przerwano.');
+        }
     }
 
     private function archive(): FileArchive

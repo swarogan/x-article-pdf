@@ -31,6 +31,10 @@ The app probes `127.0.0.1:11434` (Ollama, `/api/*`) and `127.0.0.1:8080` (OpenAI
 picking whichever answers first. Override with `LLM_HOST` / `OLLAMA_HOST`, or type `ip:port` in the UI field below the
 model list — a host given there is the only one probed, so a typo fails loudly instead of silently using a local server.
 
+The Stop button cancels a running job, including the translation loop on the server. `start.sh` sets
+`PHP_CLI_SERVER_WORKERS=4` for that reason — the built-in PHP server otherwise handles one request at a
+time and the cancel request would wait for the job it is meant to stop.
+
 ## Tests
 
 ```bash

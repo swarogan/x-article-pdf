@@ -169,6 +169,20 @@ button.run:disabled { opacity: .45; cursor: wait; }
   font-size: 10px;
   letter-spacing: .08em;
 }
+.stop {
+  width: 100%;
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid var(--fail);
+  color: var(--fail);
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: .18em;
+  padding: 10px;
+  text-transform: uppercase;
+}
+.stop:hover { background: rgba(255,80,80,.08); }
+.stop:disabled { opacity: .5; cursor: default; }
 .llm-host {
   display: grid;
   grid-template-columns: 1fr auto;
