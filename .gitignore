@@ -2,3 +2,4 @@
 /storage/tmp/
 /storage/archive/
 /.phpunit.cache/
+/.playwright-mcp/
