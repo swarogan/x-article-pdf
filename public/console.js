@@ -248,6 +248,23 @@
   let aborter = null;
   let stopping = false;
   let warmingUp = false;
+  let lastProgress = null;
+  let lastEventAt = 0;
+
+  // Zerwany strumień ma kilka różnych przyczyn. Zamiast zgadywać "za duży model",
+  // powiedz, na czym zadanie stanęło i kiedy ostatnio dało znak życia.
+  function brokenStreamMessage() {
+    if (warmingUp) {
+      return 'Połączenie przerwane w trakcie ładowania modelu. Serwer modeli może go jeszcze wczytywać — spróbuj ponownie za chwilę.';
+    }
+    const silent = lastEventAt ? Math.round((Date.now() - lastEventAt) / 1000) : 0;
+    const where = lastProgress
+      ? 'Zadanie stanęło na fragmencie ' + Math.max(1, lastProgress.current) + ' z ' + lastProgress.total + '.'
+      : 'Zadanie stanęło przed pierwszym fragmentem.';
+    const silence = silent > 5 ? ' Ostatni sygnał ' + silent + ' s temu.' : '';
+    return 'Połączenie przerwane. ' + where + silence
+      + ' To limit czasu po stronie serwera, nie wina samego modelu — sprawdź logi albo wybierz szybszy model.';
+  }
 
   function randomJobId() {
     const bytes = new Uint8Array(8);
@@ -278,6 +295,8 @@
     currentJob = randomJobId();
     stopping = false;
     warmingUp = false;
+    lastProgress = null;
+    lastEventAt = Date.now();
     aborter = new AbortController();
     stopButton.disabled = false;
     stopButton.hidden = false;
@@ -310,9 +329,7 @@
       } else {
         const msg = err && err.message ? err.message : String(err);
         if (msg === 'Error in input stream') {
-          status.textContent = warmingUp
-            ? 'Połączenie przerwane w trakcie ładowania modelu. Serwer modeli może go jeszcze wczytywać — spróbuj ponownie za chwilę.'
-            : 'Połączenie przerwane. Wybierz mniejszy model albo wyłącz tłumaczenie.';
+          status.textContent = brokenStreamMessage();
         } else {
           status.textContent = msg;
         }
@@ -364,6 +381,12 @@
     if (ev.label) status.textContent = ev.label;
     if (typeof ev.label === 'string') {
       warmingUp = ev.label.indexOf('Ładowanie modelu') === 0;
+    }
+    if (ev.stage === 'translate' && typeof ev.total === 'number' && ev.total > 0) {
+      lastProgress = { current: ev.current || 0, total: ev.total };
+    }
+    if (ev.stage === 'translate' || ev.stage === 'fetch') {
+      lastEventAt = Date.now();
     }
     if (ev.stage === 'done' && ev.item) {
       fill.style.width = '100%';

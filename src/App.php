@@ -170,7 +170,7 @@ HTML;
             return;
         }
 
-        set_time_limit($targetLang !== null ? 900 : 180);
+        set_time_limit($targetLang !== null ? 3600 : 180);
         ignore_user_abort(true);
         $jobDir = $this->root . '/storage/tmp/' . bin2hex(random_bytes(8));
         if ($progress) {
@@ -273,7 +273,7 @@ HTML;
             );
             return;
         }
-        set_time_limit(900);
+        set_time_limit(3600);
         ignore_user_abort(true);
         $jobDir = $this->root . '/storage/tmp/' . bin2hex(random_bytes(8));
         try {
@@ -373,21 +373,45 @@ HTML;
             ]);
         });
 
+        // Fragment potrafi generować się minutami. Strumień dostaje sygnał w jego trakcie,
+        // najwyżej raz na sekundę, żeby szybki model nie zalał przeglądarki eventami.
+        $done = 0;
+        $total = 0;
+        $lastTick = 0.0;
+        $translator->onActivity(function (int $chars) use ($progress, $jobId, &$done, &$total, &$lastTick): void {
+            $this->stopIfCancelled($jobId);
+            $now = microtime(true);
+            if (!$progress || $now - $lastTick < 1.0) {
+                return;
+            }
+            $lastTick = $now;
+            $this->emit([
+                'stage' => 'translate',
+                'current' => $done,
+                'total' => $total,
+                'chars' => $chars,
+                'percent' => 8 + (int) round(80 * ($done / max(1, $total))),
+                'label' => 'Tłumaczenie ' . ($done + 1) . '/' . max(1, $total),
+            ]);
+        });
+
         return (new DocumentTranslator($translator))->translate(
             $doc,
             $targetLang,
-            function (int $current, int $total) use ($progress, $jobId): void {
+            function (int $current, int $totalCount) use ($progress, $jobId, &$done, &$total): void {
                 $this->stopIfCancelled($jobId);
+                $done = $current;
+                $total = $totalCount;
                 if (!$progress) {
                     return;
                 }
-                $percent = 8 + (int) round(80 * ($current / max(1, $total)));
+                $percent = 8 + (int) round(80 * ($current / max(1, $totalCount)));
                 $this->emit([
                     'stage' => 'translate',
                     'current' => $current,
-                    'total' => $total,
+                    'total' => $totalCount,
                     'percent' => $percent,
-                    'label' => 'Tłumaczenie ' . $current . '/' . $total,
+                    'label' => 'Tłumaczenie ' . $current . '/' . $totalCount,
                 ]);
             },
             $translator->modelName(),

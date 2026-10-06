@@ -18,7 +18,21 @@ final class OllamaTranslator implements Translator
         private readonly int $timeoutSeconds = 180,
         private string $targetLanguage = 'Polish',
         private readonly string $backend = LlmEndpoint::BACKEND_OLLAMA,
+        private readonly int $heartbeatSeconds = 5,
     ) {
+    }
+
+    /** @var (callable(int): void)|null */
+    private $onActivity = null;
+
+    /**
+     * Sygnał życia w trakcie generowania fragmentu: dostaje liczbę znaków, które już przyszły.
+     *
+     * @param (callable(int): void)|null $onActivity
+     */
+    public function onActivity(?callable $onActivity): void
+    {
+        $this->onActivity = $onActivity;
     }
 
     public static function forEndpoint(LlmEndpoint $endpoint, ?string $model = null): self
@@ -94,6 +108,11 @@ final class OllamaTranslator implements Translator
         }
         $done = 0;
         $out = [];
+        if ($onProgress !== null) {
+            // Pasek postępu ma znać liczbę fragmentów, zanim ruszy pierwszy — inaczej
+            // przez cały pierwszy (najdłuższy w odczuciu) fragment pokazuje "1/1".
+            $onProgress(0, max(1, $total));
+        }
         foreach ($plan as $chunks) {
             $parts = [];
             foreach ($chunks as $chunk) {
@@ -117,23 +136,16 @@ final class OllamaTranslator implements Translator
             "/no_think\nTranslate into {$lang}. Keep HTML tags, markdown syntax, URLs, @handles and code unchanged. Return only the translation. Do not reason.\n\n" . $text,
             "/no_think\n{$lang} translation only:\n" . $text,
         ];
+        // Jedna próba na wariant promptu. Ponawianie było wcześniej zagnieżdżone
+        // (2 prompty × 3 próby × ewentualna powtórka = 12 żądań) i zamieniało jeden
+        // niedziałający fragment w kilkadziesiąt minut ciszy w strumieniu postępu.
         foreach ($prompts as $prompt) {
             try {
-                $out = trim($this->generate($prompt, 2048));
+                $out = trim($this->generateOnce($prompt, 2048));
                 if ($out !== '') {
                     return $out;
                 }
-            } catch (FetchException $e) {
-                if ($this->isTransient($e->getMessage())) {
-                    try {
-                        $out = trim($this->generate($prompt, 2048));
-                        if ($out !== '') {
-                            return $out;
-                        }
-                    } catch (FetchException) {
-                        continue;
-                    }
-                }
+            } catch (FetchException) {
                 continue;
             }
         }
@@ -159,23 +171,6 @@ final class OllamaTranslator implements Translator
         return $text;
     }
 
-    private function generate(string $prompt, int $numPredict = 2048): string
-    {
-        $last = null;
-        for ($try = 1; $try <= 3; $try++) {
-            try {
-                return $this->generateOnce($prompt, $numPredict);
-            } catch (FetchException $e) {
-                $last = $e;
-                if ($try === 3 || !$this->isTransient($e->getMessage())) {
-                    throw $e;
-                }
-                sleep($try * 2);
-            }
-        }
-        throw $last ?? new FetchException('Tłumaczenie nie wyszło.');
-    }
-
     private function generateOnce(string $prompt, int $numPredict, ?int $timeout = null): string
     {
         $openAi = $this->backend === LlmEndpoint::BACKEND_OPENAI;
@@ -183,14 +178,14 @@ final class OllamaTranslator implements Translator
             ? [
                 'model' => $this->model,
                 'messages' => [['role' => 'user', 'content' => $prompt]],
-                'stream' => false,
+                'stream' => true,
                 'max_tokens' => $numPredict,
                 'temperature' => 0.1,
             ]
             : [
                 'model' => $this->model,
                 'prompt' => $prompt,
-                'stream' => false,
+                'stream' => true,
                 'think' => false,
                 'keep_alive' => '15m',
                 'options' => [
@@ -203,6 +198,8 @@ final class OllamaTranslator implements Translator
         if ($body === false) {
             throw new FetchException('Nie udało się przygotować żądania tłumaczenia.');
         }
+        // Timeout dotyczy teraz ciszy między porcjami, nie całego generowania — długi,
+        // ale żywy fragment nie jest już zrywany w połowie.
         $context = stream_context_create([
             'http' => [
                 'method' => 'POST',
@@ -213,22 +210,46 @@ final class OllamaTranslator implements Translator
             ],
         ]);
         $path = $openAi ? '/v1/chat/completions' : '/api/generate';
-        $response = @file_get_contents($this->baseUrl . $path, false, $context);
-        if ($response === false) {
+        $handle = @fopen($this->baseUrl . $path, 'r', false, $context);
+        if (!is_resource($handle)) {
             throw new FetchException('Serwer modeli ładuje model albo nie odpowiada. Ponawiam…');
         }
-        $decoded = json_decode($response, true);
-        if (!is_array($decoded)) {
-            throw new FetchException('Serwer modeli zwrócił niepoprawną odpowiedź.');
+        // Gniazdo budzi się co $heartbeatSeconds, żeby dać sygnał życia nawet wtedy, gdy model
+        // dopiero przetwarza prompt i nie wysłał jeszcze ani jednego tokenu. Zerwanie następuje
+        // dopiero po $maxSilence ciszy z rzędu.
+        $maxSilence = $timeout ?? $this->timeoutSeconds;
+        stream_set_timeout($handle, max(1, min($this->heartbeatSeconds, $maxSilence)));
+        $content = '';
+        $lastData = microtime(true);
+        try {
+            while (true) {
+                $line = fgets($handle);
+                if ($line === false) {
+                    if (!(stream_get_meta_data($handle)['timed_out'] ?? false)) {
+                        break;
+                    }
+                    if (microtime(true) - $lastData >= $maxSilence) {
+                        throw new FetchException('Serwer modeli zamilkł w trakcie generowania. Ponawiam…');
+                    }
+                    if ($this->onActivity !== null) {
+                        ($this->onActivity)(mb_strlen($content));
+                    }
+                    continue;
+                }
+                $lastData = microtime(true);
+                $delta = self::deltaFromStreamLine($line);
+                if ($delta === null) {
+                    continue;
+                }
+                $content .= $delta;
+                if ($this->onActivity !== null) {
+                    ($this->onActivity)(mb_strlen($content));
+                }
+            }
+        } finally {
+            fclose($handle);
         }
-        $error = $decoded['error'] ?? null;
-        if (is_array($error)) {
-            $error = $error['message'] ?? null;
-        }
-        if (is_string($error) && $error !== '') {
-            throw new FetchException('Serwer modeli: ' . $error);
-        }
-        $content = self::contentFromPayload($decoded);
+        $content = trim((string) preg_replace('/<think>.*?<\/think>/is', '', $content));
         if ($content === '') {
             throw new FetchException('Tłumaczenie nie wyszło: pusta odpowiedź.');
         }
@@ -262,6 +283,47 @@ final class OllamaTranslator implements Translator
         }
 
         return false;
+    }
+
+    /**
+     * Kawałek tekstu z jednej linii strumienia — NDJSON (Ollama) albo SSE (llama.cpp/OpenAI).
+     * null oznacza linię bez treści: pustą, komentarz SSE albo znacznik końca.
+     */
+    public static function deltaFromStreamLine(string $line): ?string
+    {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, ':')) {
+            return null;
+        }
+        if (str_starts_with($line, 'data:')) {
+            $line = trim(substr($line, 5));
+            if ($line === '' || $line === '[DONE]') {
+                return null;
+            }
+        }
+        $decoded = json_decode($line, true);
+        if (!is_array($decoded)) {
+            return null;
+        }
+        $error = $decoded['error'] ?? null;
+        if (is_array($error)) {
+            $error = $error['message'] ?? null;
+        }
+        if (is_string($error) && $error !== '') {
+            throw new FetchException('Serwer modeli: ' . $error);
+        }
+        foreach ([
+            $decoded['response'] ?? null,
+            $decoded['message']['content'] ?? null,
+            $decoded['choices'][0]['delta']['content'] ?? null,
+            $decoded['choices'][0]['text'] ?? null,
+        ] as $candidate) {
+            if (is_string($candidate) && $candidate !== '') {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
