@@ -51,7 +51,7 @@ final class MarkdownExporterTest extends TestCase
         $this->assertStringContainsString('Own weekly prospecting for [what you sell].', $md);
         $this->assertStringContainsString("- pierwszy\n- drugi", $md);
         $this->assertStringContainsString('Źródło: https://x.com/anna/status/90', $md);
-        $this->assertSame('anna-90.md', MarkdownExporter::filename(new ArticleDocument(
+        $this->assertSame('tytul.md', MarkdownExporter::filename(new ArticleDocument(
             id: '90',
             url: 'https://x.com/anna/status/90',
             title: 'Tytuł',

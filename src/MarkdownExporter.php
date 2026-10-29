@@ -72,10 +72,7 @@ final class MarkdownExporter
 
     public static function filename(ArticleDocument $doc): string
     {
-        $base = $doc->author->handle . '-' . $doc->id;
-        $base = preg_replace('/[^A-Za-z0-9._-]+/', '-', $base) ?? 'x-article';
-
-        return $base . '.md';
+        return FileName::base($doc) . '.md';
     }
 
     /**

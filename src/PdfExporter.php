@@ -35,9 +35,6 @@ final class PdfExporter
 
     public static function filename(ArticleDocument $doc): string
     {
-        $base = $doc->author->handle . '-' . $doc->id;
-        $base = preg_replace('/[^A-Za-z0-9._-]+/', '-', $base) ?? 'x-article';
-
-        return $base . '.pdf';
+        return FileName::base($doc) . '.pdf';
     }
 }
